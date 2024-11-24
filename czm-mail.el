@@ -54,6 +54,127 @@ Otherwise, call `message-tab'."
 
 (defvar rmail-summary-address-width 53)
 
+(defun czm-mail-parse-date ()
+  "Parse and format the date from mail headers."
+  (save-excursion
+    (if (not (re-search-forward "^Date:" nil t))
+        "      "
+      (let ((case-fold-search t))
+        (cond
+         ;; Format: DD-MMM
+         ((re-search-forward "\\([^0-9:]\\)\\([0-3]?[0-9]\\)\\([- \t_]+\\)\\([adfjmnos][aceopu][bcglnprtvy]\\)"
+                             (line-end-position) t)
+          (format "%2d-%3s"
+                  (string-to-number (buffer-substring
+                                     (match-beginning 2)
+                                     (match-end 2)))
+                  (buffer-substring
+                   (match-beginning 4) (match-end 4))))
+         ;; Format: MMM-DD
+         ((re-search-forward "\\([^a-z]\\)\\([adfjmnos][acepou][bcglnprtvy]\\)\\([-a-z \t_]*\\)\\([0-9][0-9]?\\)"
+                             (line-end-position) t)
+          (format "%2d-%3s"
+                  (string-to-number (buffer-substring
+                                     (match-beginning 4)
+                                     (match-end 4)))
+                  (buffer-substring
+                   (match-beginning 2) (match-end 2))))
+         ;; Format: YYYY-MM-DD
+         ((re-search-forward "\\(19\\|20\\)\\([0-9][0-9]\\)-\\([01][0-9]\\)-\\([0-3][0-9]\\)"
+                             (line-end-position) t)
+          (format "%2s%2s%2s"
+                  (buffer-substring
+                   (match-beginning 2) (match-end 2))
+                  (buffer-substring
+                   (match-beginning 3) (match-end 3))
+                  (buffer-substring
+                   (match-beginning 4) (match-end 4))))
+         (t "??????"))))))
+
+(defun czm-mail-clean-field (field)
+  "Clean up a mail header FIELD by handling newlines and RFC2047 decoding."
+  (when field
+    (let ((decoded (rfc2047-decode-string field)))
+      ;; Handle multiple lines, discard up to the last newline
+      (let ((newline (string-search "\n" decoded)))
+        (while newline
+          (setq decoded (substring decoded (1+ newline)))
+          (setq newline (string-search "\n" decoded))))
+      ;; Remove any remaining newlines
+      (replace-regexp-in-string "\n+" " " decoded))))
+
+(defun czm-mail-format-address (field)
+  "Format address FIELD to fit within `rmail-summary-address-width'."
+  (if (null field)
+      "                         "
+    (let* ((clean-field (czm-mail-clean-field field))
+           (len (length clean-field))
+           (mch (string-match "[@%]" clean-field))
+           (a (- rmail-summary-address-width 11)))
+      (format (concat "%" (format "%s" rmail-summary-address-width) "s")
+              (if (or (not mch) (<= len rmail-summary-address-width))
+                  (substring clean-field (max 0 (- len rmail-summary-address-width)))
+                (let ((lo (cond ((< (- mch a) 0) 0)
+                                ((< len (+ mch 11))
+                                 (- len rmail-summary-address-width))
+                                (t (- mch a)))))
+                  (substring clean-field
+                             lo
+                             (min len (+ lo rmail-summary-address-width)))))))))
+
+(defun czm-mail-get-from-or-to-field ()
+  "Get either From or To field depending on whether the From field is the current user."
+  (save-excursion
+    (goto-char (point-min))
+    (let* ((from (and (re-search-forward "^From:[ \t]*" nil t)
+                      (buffer-substring
+                       (1- (point))
+                       (progn
+                         (while (progn (forward-line 1)
+                                       (looking-at "[ \t]")))
+                         (forward-char -1)
+                         (skip-chars-backward " \t")
+                         (point)))))
+           (from-stripped (mail-strip-quoted-names from)))
+      (if (or (null from)
+              (string-match
+               (or rmail-user-mail-address-regexp
+                   (concat "^\\("
+                           (regexp-quote (user-login-name))
+                           "\\($\\|@\\)\\|"
+                           (regexp-quote user-mail-address)
+                           "\\>\\)"))
+               from-stripped))
+          ;; If From is current user, get To field instead
+          (save-excursion
+            (goto-char (point-min))
+            (when (re-search-forward "^To:[ \t]*" nil t)
+              (let ((to (buffer-substring
+                         (point)
+                         (progn (end-of-line)
+                                (skip-chars-backward " \t")
+                                (point)))))
+                (concat "to: " to))))
+        from))))
+
+(defun czm-mail-get-subject ()
+  "Get the subject line from mail headers."
+  (save-excursion
+    (if (re-search-forward "^Subject:" nil t)
+        (let (pos str)
+          (skip-chars-forward " \t")
+          (setq pos (point))
+          (forward-line 1)
+          (setq str (buffer-substring pos (1- (point))))
+          (while (looking-at "[ \t]")
+            (setq str (concat str " "
+                              (buffer-substring (match-end 0)
+                                                (line-end-position))))
+            (forward-line 1))
+          str)
+      (when (re-search-forward "[\n][\n]+" nil t)
+        (buffer-substring (point) (progn (end-of-line) (point)))))))
+
 (defun czm-mail-header-summary ()
   "Return a message summary based on the message headers.
 The value is a list of two strings, the first and second parts of the summary.
@@ -62,130 +183,11 @@ The current buffer must already be narrowed to the message headers for
 the message being processed."
   (goto-char (point-min))
   (list
-   (concat (save-excursion
-	            (if (not (re-search-forward "^Date:" nil t))
-		               "      "
-	              ;; Match month names case-insensitively
-	              (cond ((let ((case-fold-search t))
-			                     (re-search-forward "\\([^0-9:]\\)\\([0-3]?[0-9]\\)\\([- \t_]+\\)\\([adfjmnos][aceopu][bcglnprtvy]\\)"
-					                                      (line-end-position) t))
-		                    (format "%2d-%3s"
-			                           (string-to-number (buffer-substring
-						                                           (match-beginning 2)
-						                                           (match-end 2)))
-			                           (buffer-substring
-			                            (match-beginning 4) (match-end 4))))
-		                   ((let ((case-fold-search t))
-			                     (re-search-forward "\\([^a-z]\\)\\([adfjmnos][acepou][bcglnprtvy]\\)\\([-a-z \t_]*\\)\\([0-9][0-9]?\\)"
-					                                      (line-end-position) t))
-		                    (format "%2d-%3s"
-			                           (string-to-number (buffer-substring
-						                                           (match-beginning 4)
-						                                           (match-end 4)))
-			                           (buffer-substring
-			                            (match-beginning 2) (match-end 2))))
-		                   ((re-search-forward "\\(19\\|20\\)\\([0-9][0-9]\\)-\\([01][0-9]\\)-\\([0-3][0-9]\\)"
-		                                       (line-end-position) t)
-		                    (format "%2s%2s%2s"
-			                           (buffer-substring
-			                            (match-beginning 2) (match-end 2))
-			                           (buffer-substring
-			                            (match-beginning 3) (match-end 3))
-			                           (buffer-substring
-			                            (match-beginning 4) (match-end 4))))
-		                   (t "??????"))))
-	          "  "
-	          (save-excursion
-	            (let* ((field (and (re-search-forward "^From:[ \t]*" nil t)
-                                (buffer-substring
-                                 (1- (point))
-                                 (progn
-                                   (while (progn (forward-line 1)
-                                                 (looking-at "[ \t]")))
-                                   (forward-char -1)
-                                   (skip-chars-backward " \t")
-                                   (point)))))
-                    ;; (field (and (re-search-forward "^From:[ \t]*" nil t)
-                    ;;            (let ((raw-from (buffer-substring
-                    ;;                             (1- (point))
-                    ;;                             (progn
-                    ;;                               (while (progn (forward-line 1)
-                    ;;                                             (looking-at "[ \t]")))
-                    ;;                               (forward-char -1)
-                    ;;                               (skip-chars-backward " \t")
-                    ;;                               (point)))))
-                    ;;              ;; Decode any MIME encoding in the Field field
-                    ;;              (setq raw-from (rfc2047-decode-string raw-from))
-                    ;;              ;; Extract the name or address
-                    ;;              (rmail-parse-address-basic raw-from))))
-                    len mch lo newline)
-               ;; If there are multiple lines in FIELD,
-               ;; discard up to the last newline in it.
-               (while (and (stringp field)
-                           (setq newline (string-search "\n" field)))
-                 (setq field (substring field (1+ newline))))
-	              (if (or (null field)
-		                     (string-match
-			                     (or rmail-user-mail-address-regexp
-			                         (concat "^\\("
-				                                (regexp-quote (user-login-name))
-				                                "\\($\\|@\\)\\|"
-				                                (regexp-quote user-mail-address)
-				                                "\\>\\)"))
-			                     field))
-		                 ;; No Field field, or it's this user.
-		                 (save-excursion
-		                   (goto-char (point-min))
-		                   (if (not (re-search-forward "^To:[ \t]*" nil t))
-			                      nil
-		                     (setq field
-			                          (concat "to: "
-				                                 (mail-strip-quoted-names
-				                                  (buffer-substring
-				                                   (point)
-				                                   (progn (end-of-line)
-					                                         (skip-chars-backward " \t")
-					                                         (point)))))))))
-	              (if (null field)
-		                 "                         "
-		               ;; We are going to return only 25 characters of the
-		               ;; address, so make sure it is RFC2047 decoded before
-		               ;; taking its substring.  This is important when the address is not on the same line as the name, e.g.:
-		               ;; To: =?UTF-8?Q?=C5=A0t=C4=9Bp=C3=A1n_?= =?UTF-8?Q?N=C4=9Bmec?=
-		               ;; <stepnem@gmail.com>
-		               (setq field (rfc2047-decode-string field))
-                 ;; We cannot tolerate any leftover newlines in Field,
-                 ;; as that disrupts the rmail-summary display.
-                 ;; Newlines can be left in Field if it was malformed,
-                 ;; e.g. had unbalanced quotes.
-                 (setq field (replace-regexp-in-string "\n+" " " field))
-		               (setq len (length field))
-		               (setq mch (string-match "[@%]" field))
-                 (let ((a (- rmail-summary-address-width 11)))
-		                 (format (concat "%" (format "%s" rmail-summary-address-width) "s")
-			                        (if (or (not mch) (<= len rmail-summary-address-width))
-			                            (substring field (max 0 (- len rmail-summary-address-width)))
-			                          (substring field
-				                                    (setq lo (cond ((< (- mch a) 0) 0)
-						                                                 ((< len (+ mch 11))
-						                                                  (- len rmail-summary-address-width))
-						                                                 (t (- mch a))))
-				                                    (min len (+ lo rmail-summary-address-width))))))))))
-   (concat (if (re-search-forward "^Subject:" nil t)
-	              (let (pos str)
-		               (skip-chars-forward " \t")
-		               (setq pos (point))
-		               (forward-line 1)
-		               (setq str (buffer-substring pos (1- (point))))
-		               (while (looking-at "[ \t]")
-		                 (setq str (concat str " "
-				                                 (buffer-substring (match-end 0)
-						                                                 (line-end-position))))
-		                 (forward-line 1))
-		               str)
-	            (re-search-forward "[\n][\n]+" nil t)
-	            (buffer-substring (point) (progn (end-of-line) (point))))
-	          "\n")))
+   (concat (czm-mail-parse-date)
+           "  "
+           (czm-mail-format-address (czm-mail-get-from-or-to-field)))
+   (concat (czm-mail-get-subject)
+           "\n")))
 
 (advice-add #'rmail-header-summary :override #'czm-mail-header-summary)
 
