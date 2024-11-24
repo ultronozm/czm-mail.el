@@ -192,6 +192,7 @@ the message being processed."
 (advice-add #'rmail-header-summary :override #'czm-mail-header-summary)
 
 (defun czm-mail-read-file-advice (orig-fun prompt &rest args)
+  "Advice to set the default directory for RMAIL files."
   (if (and current-prefix-arg
            (equal prompt "Run rmail on RMAIL file: "))
       (let ((default-directory rmail-secondary-file-directory))
