@@ -191,5 +191,14 @@ the message being processed."
 
 (advice-add #'rmail-header-summary :override #'czm-mail-header-summary)
 
+(defun czm-mail-read-file-advice (orig-fun prompt &rest args)
+  (if (and current-prefix-arg
+           (equal prompt "Run rmail on RMAIL file: "))
+      (let ((default-directory rmail-secondary-file-directory))
+        (apply orig-fun prompt args))
+    (apply orig-fun prompt args)))
+
+(advice-add 'read-file-name :around #'czm-mail-read-file-advice)
+
 (provide 'czm-mail)
 ;;; czm-mail.el ends here
