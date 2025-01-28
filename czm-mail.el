@@ -20,7 +20,20 @@
 
 ;;; Commentary:
 
-;; 
+;; A hodgepodge of mail-related functions and tweaks.
+
+;; 1. `czm-mail-message-tab' gives smarter tab completion in message
+;; composition buffers -- inserting aliases in header files, and
+;; otherwise calling `message-tab'.  To set to up, add the following
+;; to your config:
+;;
+;; (define-key message-mode-map (kbd "TAB") #'czm-mail-message-tab)
+
+;; 2. `rmail-header-summary' is overrided to allow for longer sender
+;; names and, for messages sent by us, to show their recipients.
+
+;; 3. `read-file-name' is advised so that when `rmail' is called with
+;; a prefix argument, it reads from `rmail-secondary-file-directory'.
 
 ;;; Code:
 
