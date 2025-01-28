@@ -30,10 +30,7 @@
   "Call `mail-abbrev-insert-alias' in address fields.
 Otherwise, call `message-tab'."
   (interactive)
-  (if (and (message-point-in-header-p)
-           (save-excursion
-             (beginning-of-line)
-             (looking-at "^\\([A-Za-z]-\\)?\\(To\\|Cc\\|Bcc\\|From\\|Reply-to\\):")))
+  (if (message-point-in-header-p)
       (call-interactively #'mail-abbrev-insert-alias)
     (message-tab)))
 
