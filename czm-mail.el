@@ -47,11 +47,23 @@
 ;; (keymap-set message-mode-map "TAB" #'czm-mail-message-tab)
 ;; (setopt czm-mail-refile-file "~/mail/scheduled.rmail")
 ;; (keymap-set rmail-mode-map "S" #'czm-mail-refile-and-store-link)
-;; (czm-mail-setup-email-parsing)
 ;; (keymap-global-set "C-c C-@" #'czm-mail-mailrc-add-entry)
-;; (advice-add #'rmail-header-summary :override #'czm-mail-header-summary)
-;; (advice-add 'read-file-name :around #'czm-mail-read-file-advice)
-
+;; (czm-mail-setup)
+;;
+;; or, with use-package:
+;;
+;; (use-package czm-mail
+;;   :after rmail
+;;   :bind
+;;   ("C-c C-@" . czm-mail-mailrc-add-entry)
+;;   (:map rmail-mode-map
+;;         ("S" . czm-mail-refile-and-store-link))
+;;   (:map message-mode-map
+;;         ("TAB" . czm-mail-message-tab))
+;;   :custom
+;;   (czm-mail-refile-file "~/mail/scheduled.rmail")
+;;   :config
+;;   (czm-mail-setup))
 
 ;;; Code:
 
@@ -63,6 +75,7 @@
 
 ;;; Message Composition
 
+;;;###autoload
 (defun czm-mail-message-tab ()
   "Use `mail-abbrev-insert-alias' in headers, otherwise `message-tab'."
   (interactive)
@@ -79,6 +92,7 @@
 
 (declare-function org-store-link "org")
 
+;;;###autoload
 (defun czm-mail-refile-and-store-link ()
   "Refile current message and store an org link to it."
   (interactive)
@@ -96,12 +110,7 @@
 ;; This code is adapted from Dimitri Fontaine's blog:
 ;; https://tapoueh.org/blog/2009/09/improving-~-.mailrc-usage/
 
-(defun czm-mail-setup-email-parsing ()
-  "Set up email parsing functions."
-  (put 'email-address 'bounds-of-thing-at-point #'czm-mail-bounds-of-email-address)
-  (put 'email-address 'thing-at-point #'czm-mail-email-address))
-
-(defun czm-mail-bounds-of-email-address ()
+(defun czm-mail--bounds-of-email-address ()
   "Return begin and end position of email at point, including full name."
   (save-excursion
     (let* ((search-point (point))
@@ -116,14 +125,14 @@
                     (line-end-position)))))
       (cons start end))))
 
-(defun czm-mail-email-address ()
+(defun czm-mail--email-address ()
   "Return email address at point."
-  (let* ((bounds (czm-mail-bounds-of-email-address))
+  (let* ((bounds (czm-mail--bounds-of-email-address))
          (email-address-text
           (when bounds (buffer-substring-no-properties (car bounds) (cdr bounds)))))
     (mail-header-parse-address email-address-text)))
 
-(defun czm-mail-generate-default-alias (address)
+(defun czm-mail--generate-default-alias (address)
   "Generate a default alias from an email ADDRESS.
 ADDRESS should be a cons cell of (email . name) as returned by
 mail-header-parse-address.  Returns a string suitable for use as an
@@ -142,12 +151,13 @@ email alias."
         (concat dashed-name "-" domain-part))
     (car address)))
 
+;;;###autoload
 (defun czm-mail-mailrc-add-entry (alias)
   "Add email at point to mail aliases file.
 If ALIAS is empty, generate a default alias based on the name and domain."
   (interactive
    (let* ((addr (thing-at-point 'email-address))
-          (default-alias (when addr (czm-mail-generate-default-alias addr))))
+          (default-alias (when addr (czm-mail--generate-default-alias addr))))
      (list (read-string (format "Alias%s: "
                                 (if default-alias
                                     (format " (default %s)" default-alias)
@@ -273,7 +283,7 @@ If ALIAS is empty, generate a default alias based on the name and domain."
                 (concat "to: " to))))
         from))))
 
-(defun czm-mail-get-subject ()
+(defun czm-mail--get-subject ()
   "Get subject from mail headers."
   (save-excursion
     (if (re-search-forward "^Subject:" nil t)
@@ -291,7 +301,7 @@ If ALIAS is empty, generate a default alias based on the name and domain."
       (when (re-search-forward "[\n][\n]+" nil t)
         (buffer-substring (point) (progn (end-of-line) (point)))))))
 
-(defun czm-mail-header-summary ()
+(defun czm-mail--header-summary ()
   "Return a message summary based on the message headers.
 The value is a list of two strings, the first and second parts of the summary.
 
@@ -302,12 +312,12 @@ the message being processed."
    (concat (czm-mail-parse-date)
            "  "
            (czm-mail-format-address (czm-mail-get-from-or-to-field)))
-   (concat (czm-mail-get-subject)
+   (concat (czm-mail--get-subject)
            "\n")))
 
 ;;; Read File Name Advice
 
-(defun czm-mail-read-file-advice (orig-fun prompt &rest args)
+(defun czm-mail--read-file-advice (orig-fun prompt &rest args)
   "Advice to set default directory for RMAIL files.
 ORIG-FUN is the original function, PROMPT is the prompt, and ARGS are
 the arguments."
@@ -316,6 +326,17 @@ the arguments."
       (let ((default-directory rmail-secondary-file-directory))
         (apply orig-fun prompt args))
     (apply orig-fun prompt args)))
+
+;;; Setup
+
+(defun czm-mail-setup ()
+  "Set up all czm-mail functionality."
+  ;; Email parsing for mailrc functionality
+  (put 'email-address 'bounds-of-thing-at-point #'czm-mail--bounds-of-email-address)
+  (put 'email-address 'thing-at-point #'czm-mail--email-address)
+  ;; Advice for file reading and header summary
+  (advice-add 'read-file-name :around #'czm-mail--read-file-advice)
+  (advice-add 'rmail-header-summary :override #'czm-mail--header-summary))
 
 (provide 'czm-mail)
 ;;; czm-mail.el ends here
