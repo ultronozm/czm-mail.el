@@ -59,7 +59,8 @@
 ;;   (:map rmail-mode-map
 ;;         ("S" . czm-mail-refile-and-store-link))
 ;;   (:map message-mode-map
-;;         ("TAB" . czm-mail-message-tab))
+;;         ("TAB" . czm-mail-message-tab)
+;;         ("C-c C-a" . czm-mail-insert-diff-as-attachment))
 ;;   :custom
 ;;   (czm-mail-refile-file "~/mail/scheduled.rmail")
 ;;   :config
@@ -326,6 +327,31 @@ the arguments."
       (let ((default-directory rmail-secondary-file-directory))
         (apply orig-fun prompt args))
     (apply orig-fun prompt args)))
+
+;;; Patch/Diff Attachment
+
+;;;###autoload
+(defun czm-mail-insert-diff-as-attachment ()
+  "Insert a diff buffer as a MIME attachment in the current mail buffer.
+Searches for diff buffers and allows selecting one to attach as a patch."
+  (interactive)
+  (let* ((diff-buffers (cl-remove-if-not 
+                        (lambda (buf)
+                          (member (buffer-name buf) '("*vc-diff*" "*diff*")))
+                        (buffer-list)))
+         (diff-buffer-names (mapcar #'buffer-name diff-buffers))
+         (selected-buffer-name (if (= 1 (length diff-buffer-names))
+                                   (car diff-buffer-names)
+                                 (completing-read "Attach diff buffer: " diff-buffer-names))))
+    (if selected-buffer-name
+        (progn
+          (mml-attach-buffer selected-buffer-name
+                             "text/x-patch" 
+                             "changes" 
+                             "attachment"
+                             "changes.patch")
+          (message "Patch attached from %s" selected-buffer-name))
+      (message "No diff buffer found"))))
 
 ;;; Setup
 
