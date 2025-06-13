@@ -176,7 +176,8 @@ If ALIAS is empty, generate a default alias based on the name and domain."
           (save-excursion
             (goto-char (point-max))
             (insert (format "\nalias %s \"%s <%s>\""
-                            alias (cdr address) (car address)))))))))
+                            alias (cdr address) (car address)))
+            (rebuild-mail-abbrevs)))))))
 
 ;;; Rmail Summary Display
 
