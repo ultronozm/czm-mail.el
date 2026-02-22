@@ -29,17 +29,14 @@
 ;; composition buffers -- inserting aliases in header files, and
 ;; otherwise calling `message-tab'.
 
-;; 2. `rmail-header-summary' is overrided to allow for longer sender
-;; names and, for messages sent by us, to show their recipients.
-
-;; 3. `read-file-name' is advised so that when `rmail' is called with
+;; 2. `read-file-name' is advised so that when `rmail' is called with
 ;; a prefix argument, it reads from `rmail-secondary-file-directory'.
 
-;; 4. A command `czm-mail-mailrc-add-entry' for storing email aliases,
+;; 3. A command `czm-mail-mailrc-add-entry' for storing email aliases,
 ;; adapted from Dimitri Fontaine's blog:
 ;; https://tapoueh.org/blog/2009/09/improving-~-.mailrc-usage/).
 
-;; 5. A command `czm-mail-refile-and-store-link' for refiling and
+;; 4. A command `czm-mail-refile-and-store-link' for refiling and
 ;; storing links in some specified target rmail file.
 
 ;; Sample config:
@@ -361,9 +358,8 @@ Searches for diff buffers and allows selecting one to attach as a patch."
   ;; Email parsing for mailrc functionality
   (put 'email-address 'bounds-of-thing-at-point #'czm-mail--bounds-of-email-address)
   (put 'email-address 'thing-at-point #'czm-mail--email-address)
-  ;; Advice for file reading and header summary
-  (advice-add 'read-file-name :around #'czm-mail--read-file-advice)
-  (advice-add 'rmail-header-summary :override #'czm-mail--header-summary))
+  ;; Advice for file reading
+  (advice-add 'read-file-name :around #'czm-mail--read-file-advice))
 
 (provide 'czm-mail)
 ;;; czm-mail.el ends here
