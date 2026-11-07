@@ -43,6 +43,9 @@
 ;; `czm-mail-compose-with-attachments' for attaching a buffer's underlying
 ;; file or its contents, and composing mail from the visible buffers.
 
+;; The optional library czm-mail-mairix provides `czm-mail-mairix-menu',
+;; a Transient menu for Mairix commands and a search syntax reference.
+
 ;; Sample config:
 
 ;; (keymap-set message-mode-map "TAB" #'czm-mail-message-tab)
