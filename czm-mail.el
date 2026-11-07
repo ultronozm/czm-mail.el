@@ -39,6 +39,10 @@
 ;; 4. A command `czm-mail-refile-and-store-link' for refiling and
 ;; storing links in some specified target rmail file.
 
+;; 5. Commands `czm-mail-attach-buffer-or-file' and
+;; `czm-mail-compose-with-attachments' for attaching a buffer's underlying
+;; file or its contents, and composing mail from the visible buffers.
+
 ;; Sample config:
 
 ;; (keymap-set message-mode-map "TAB" #'czm-mail-message-tab)
@@ -80,6 +84,71 @@
   (if (message-point-in-header-p)
       (call-interactively #'mail-abbrev-insert-alias)
     (message-tab)))
+
+;;;###autoload
+(defun czm-mail-attach-buffer-or-file
+    (buffer &optional type description disposition filename)
+  "Attach BUFFER's underlying file, or its contents if it has no file.
+BUFFER may be a buffer or its name.  TYPE, DESCRIPTION, and DISPOSITION
+are optional MIME properties, as for `mml-attach-file'.
+If BUFFER visits a modified file, ask whether to save it before attaching.
+Declining attaches the file's saved contents.  For a buffer without a file,
+FILENAME is the suggested attachment name; prompt for it interactively.
+With a prefix argument, use default MIME properties without prompting."
+  (interactive
+   (let* ((buffer (read-buffer "Attach from buffer: " (buffer-name) t))
+          (file (buffer-file-name (get-buffer buffer)))
+          (no-prompt current-prefix-arg)
+          (type (if no-prompt
+                    (or (and file (mm-default-file-type file))
+                        "application/octet-stream")
+                  (mml-minibuffer-read-type
+                   (if file (file-name-nondirectory file) buffer))))
+          (description (unless no-prompt
+                         (mml-minibuffer-read-description)))
+          (disposition
+           (if no-prompt
+               (if file
+                   (mml-content-disposition type (file-name-nondirectory file))
+                 "attachment")
+             (mml-minibuffer-read-disposition
+              type nil (and file (file-name-nondirectory file)))))
+          (filename (unless file
+                      (read-string "Filename for attachment: "
+                                   (concat buffer ".txt")))))
+     (list buffer type description disposition filename)))
+  (let* ((source (or (get-buffer buffer)
+                     (user-error "No buffer named %s" buffer)))
+         (file (buffer-file-name source)))
+    (if file
+        (progn
+          (with-current-buffer source
+            (when (and (buffer-modified-p)
+                       (y-or-n-p
+                        (format "Buffer `%s' is modified. Save before attaching? "
+                                (buffer-name source))))
+              (save-buffer)))
+          (mml-attach-file file type description disposition))
+      (mml-attach-buffer (buffer-name source)
+                         type description disposition filename))))
+
+;;;###autoload
+(defun czm-mail-compose-with-attachments (&optional arg)
+  "Prepare a message with the current buffer attached.
+With prefix ARG, attach all visible buffers in the selected frame instead.
+Use each buffer's underlying file if it has one; otherwise use its contents.
+Ask whether to save modified file buffers before attaching them."
+  (interactive "P")
+  (let ((buffers (if arg
+                     (delete-dups (mapcar #'window-buffer (window-list)))
+                   (list (current-buffer)))))
+    (compose-mail)
+    (save-excursion
+      (rfc822-goto-eoh)
+      (forward-line)
+      (open-line 2)
+      (dolist (buffer buffers)
+        (czm-mail-attach-buffer-or-file buffer)))))
 
 ;;; Refile Functions
 
