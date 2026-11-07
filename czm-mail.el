@@ -72,7 +72,15 @@
 (require 'message)
 (require 'mail-parse)
 (require 'rmail)
-(require 'rmailsum)
+
+(defgroup czm-mail nil
+  "Mail composition and Rmail helpers."
+  :group 'mail
+  :prefix "czm-mail-")
+
+(declare-function rmail-summary-output "rmailsum" (&optional file-name n))
+(declare-function rmail-summary-goto-msg "rmailsum" (&optional n nowarn skip-rmail))
+(declare-function rmail-summary-msg-number "rmailsum" ())
 
 
 ;;; Message Composition
@@ -159,18 +167,74 @@ Ask whether to save modified file buffers before attaching them."
 
 (declare-function org-store-link "org")
 
+(defun czm-mail--rmail-store-link-to-last-message (file)
+  "Store an Org link to the last message in Rmail FILE."
+  (require 'ol-rmail)
+  (with-current-buffer (find-file-noselect file)
+    (rmail-last-message)
+    (org-store-link nil t)))
+
 ;;;###autoload
 (defun czm-mail-refile-and-store-link ()
   "Refile current message and store an org link to it."
   (interactive)
   (unless czm-mail-refile-file
     (user-error "Please set czm-mail-refile-file"))
+  (require 'rmailout)
   (rmail-output czm-mail-refile-file)
-  (let ((buffer (find-file-noselect czm-mail-refile-file)))
-    (with-current-buffer buffer
-      (rmail-last-message)
-      (require 'org)
-      (org-store-link nil t))))
+  (czm-mail--rmail-store-link-to-last-message czm-mail-refile-file))
+
+;;;###autoload
+(defun czm-mail-rmail-summary-output-and-store-link (&optional file-name count)
+  "Output COUNT summary messages to FILE-NAME and store an Org link.
+The link refers to the last message appended to the destination file.
+FILE-NAME defaults to `rmail-default-file'; COUNT defaults to one.
+Interactively, prompt for the file and use the numeric prefix as COUNT."
+  (interactive
+   (progn
+     (require 'rmailout)
+     (list (rmail-output-read-file-name)
+           (prefix-numeric-value current-prefix-arg))))
+  (require 'rmailsum)
+  (let ((target (or file-name rmail-default-file)))
+    (rmail-summary-output target (or count 1))
+    (czm-mail--rmail-store-link-to-last-message target)))
+
+;;;###autoload
+(defun czm-mail-rmail-summary-visit-message (&optional number nowarn)
+  "Visit summary message NUMBER in the selected window.
+NUMBER defaults to the message on the current summary line.
+If NOWARN is non-nil, suppress warnings about missing messages."
+  (interactive "P")
+  (require 'rmailsum)
+  (when (rmail-summary-goto-msg number nowarn t)
+    (let ((message (rmail-summary-msg-number))
+          (buffer rmail-buffer))
+      (when (buffer-live-p buffer)
+        (switch-to-buffer buffer)
+        (rmail-show-message message)))))
+
+;;;###autoload
+(defun czm-mail-rmail-compose-buffer-p (buffer-or-name _action)
+  "Return non-nil for a compose buffer displayed from Rmail.
+Recognize the standard *unsent and *mail* buffer names.  This is a
+`display-buffer-alist' predicate; it does not choose a display action."
+  (let ((name (if (bufferp buffer-or-name)
+                  (buffer-name buffer-or-name)
+                buffer-or-name)))
+    (and (stringp name)
+         (or (string-prefix-p "*unsent" name) (string= name "*mail*"))
+         (with-current-buffer (window-buffer (selected-window))
+           (derived-mode-p 'rmail-mode 'rmail-summary-mode)))))
+
+;;;###autoload
+(defun czm-mail-rmail-message-buffer-p (buffer-or-name _action)
+  "Return non-nil for the message buffer of the current Rmail summary.
+This is a `display-buffer-alist' predicate."
+  (let ((buffer (get-buffer buffer-or-name)))
+    (and (derived-mode-p 'rmail-summary-mode)
+         (buffer-live-p buffer)
+         (eq buffer rmail-buffer))))
 
 ;;; Mailrc Management
 
