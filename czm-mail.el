@@ -85,6 +85,28 @@
 
 ;;; Message Composition
 
+(defcustom czm-mail-debbugs-cc-default nil
+  "Default address offered by `czm-mail-message-insert-debbugs-cc'."
+  :type '(choice (const :tag "No default" nil) string)
+  :group 'czm-mail)
+
+(defvar-keymap czm-mail--debbugs-cc-minibuffer-map
+  :parent minibuffer-local-map
+  "TAB" #'mail-abbrev-insert-alias)
+
+;;;###autoload
+(defun czm-mail-message-insert-debbugs-cc (address)
+  "Add an X-Debbugs-Cc header containing ADDRESS, preserving point.
+Leave an existing X-Debbugs-Cc header unchanged.  Interactively, read
+an address with TAB alias completion and `czm-mail-debbugs-cc-default'."
+  (interactive
+   (progn
+     (require 'mailabbrev)
+     (list (let ((minibuffer-local-map czm-mail--debbugs-cc-minibuffer-map))
+             (read-string "X-Debbugs-Cc: " nil nil czm-mail-debbugs-cc-default)))))
+  (save-excursion
+    (message-add-header (format "X-Debbugs-Cc: %s" address))))
+
 ;;;###autoload
 (defun czm-mail-message-tab ()
   "Use `mail-abbrev-insert-alias' in headers, otherwise `message-tab'."

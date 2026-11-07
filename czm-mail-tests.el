@@ -4,6 +4,25 @@
 (require 'ert-x)
 (require 'czm-mail)
 
+(ert-deftest czm-mail-message-debbugs-cc ()
+  "Insert the header once while preserving the position in the body."
+  (require 'mailabbrev)
+  (let ((mail-personal-alias-file nil)
+        (mail-abbrevs (make-abbrev-table)))
+    (with-temp-buffer
+      (message-mode)
+      (insert "To: recipient@example.test\nSubject: Test\n"
+              mail-header-separator "\nBody.\n")
+      (goto-char (point-max))
+      (let ((position (point-marker)))
+        (czm-mail-message-insert-debbugs-cc "list@example.test")
+        (czm-mail-message-insert-debbugs-cc "other@example.test")
+        (should (= (point) position))
+        (should (equal (message-fetch-field "X-Debbugs-Cc")
+                       "list@example.test"))
+        (goto-char (point-min))
+        (should (= (how-many "^X-Debbugs-Cc:") 1))))))
+
 (ert-deftest czm-mail-rmail-summary-workflow ()
   "Output a summary message, link to its copy, and visit another message."
   (require 'rmailsum)
