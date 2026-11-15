@@ -25,9 +25,10 @@
 
 ;; A hodgepodge of mail-related functions and tweaks.
 
-;; 1. `czm-mail-message-tab' gives smarter tab completion in message
-;; composition buffers -- inserting aliases in header files, and
-;; otherwise calling `message-tab'.
+;; 1. `czm-mail-alias-completion-at-point' completes mail aliases in
+;; address headers.  `czm-mail-setup' installs it when called from
+;; `message-mode-hook'.  `czm-mail-message-tab' instead prompts for an
+;; alias in the minibuffer.
 
 ;; 2. `read-file-name' is advised so that when `rmail' is called with
 ;; a prefix argument, it reads from `rmail-secondary-file-directory'.
@@ -48,7 +49,8 @@
 
 ;; Sample config:
 
-;; (keymap-set message-mode-map "TAB" #'czm-mail-message-tab)
+;; (keymap-set message-mode-map "TAB" #'message-tab)
+;; (add-hook 'message-mode-hook #'czm-mail-setup)
 ;; (setopt czm-mail-refile-file "~/mail/scheduled.rmail")
 ;; (keymap-set rmail-mode-map "S" #'czm-mail-refile-and-store-link)
 ;; (keymap-global-set "C-c C-@" #'czm-mail-mailrc-add-entry)
@@ -58,12 +60,13 @@
 ;;
 ;; (use-package czm-mail
 ;;   :after rmail
+;;   :hook (message-mode . czm-mail-setup)
 ;;   :bind
 ;;   ("C-c C-@" . czm-mail-mailrc-add-entry)
 ;;   (:map rmail-mode-map
 ;;         ("S" . czm-mail-refile-and-store-link))
 ;;   (:map message-mode-map
-;;         ("TAB" . czm-mail-message-tab)
+;;         ("TAB" . message-tab)
 ;;         ("C-c C-a" . czm-mail-insert-diff-as-attachment))
 ;;   :custom
 ;;   (czm-mail-refile-file "~/mail/scheduled.rmail")
@@ -117,6 +120,39 @@ an address with TAB alias completion and `czm-mail-debbugs-cc-default'."
   (if (message-point-in-header-p)
       (call-interactively #'mail-abbrev-insert-alias)
     (message-tab)))
+
+;;;###autoload
+(defun czm-mail-alias-completion-at-point ()
+  "Complete mail aliases in Message address headers.
+Offer alias names annotated with their expansions, and expand an alias
+when completion is accepted.  Return completion data for
+`completion-at-point-functions'.
+`czm-mail-setup' installs this function locally in Message buffers."
+  (require 'mailabbrev)
+  (when (and (derived-mode-p 'message-mode)
+             (mail-abbrev-in-expansion-header-p))
+    (unless (obarrayp mail-abbrevs)
+      (mail-abbrevs-setup))
+    (when (obarrayp mail-abbrevs)
+      (mail-resolve-all-aliases)
+      (mail-abbrev-make-syntax-table)
+      (let ((begin (with-syntax-table mail-abbrev-syntax-table
+                     (save-excursion (skip-syntax-backward "w") (point))))
+            (end (with-syntax-table mail-abbrev-syntax-table
+                   (save-excursion (skip-syntax-forward "w") (point)))))
+        (list begin end mail-abbrevs
+              :predicate (lambda (symbol)
+                           (abbrev-expansion (symbol-name symbol) mail-abbrevs))
+              :annotation-function
+              (lambda (alias)
+                (concat " " (abbrev-expansion alias mail-abbrevs)))
+              :exit-function
+              (lambda (_alias status)
+                (when (memq status '(finished sole))
+                  (let ((local-abbrev-table mail-abbrevs))
+                    (with-syntax-table mail-abbrev-syntax-table
+                      (expand-abbrev)))))
+              :exclusive 'no)))))
 
 ;;;###autoload
 (defun czm-mail-attach-buffer-or-file
@@ -512,7 +548,12 @@ Searches for diff buffers and allows selecting one to attach as a patch."
 ;;; Setup
 
 (defun czm-mail-setup ()
-  "Set up all czm-mail functionality."
+  "Set up czm-mail functionality.
+In Message buffers, enable mail alias completion.  Add this function
+to `message-mode-hook' to enable it in new composition buffers."
+  (when (derived-mode-p 'message-mode)
+    (add-hook 'completion-at-point-functions
+              #'czm-mail-alias-completion-at-point nil t))
   ;; Email parsing for mailrc functionality
   (put 'email-address 'bounds-of-thing-at-point #'czm-mail--bounds-of-email-address)
   (put 'email-address 'thing-at-point #'czm-mail--email-address)
